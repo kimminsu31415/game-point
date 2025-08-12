@@ -50,24 +50,77 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const fetchRoutines = async () => {
     try {
       setLoading(true);
+
+      // 1. 서버에서 데이터 가져오기 (우선순위 1)
       let serverData = [];
       try {
         const response = await fetch(`${API_BASE_URL}/${dateKey}`);
-        if (response.ok) serverData = await response.json();
-      } catch {}
+        if (response.ok) {
+          serverData = await response.json();
+        }
+      } catch (error) {
+        console.warn('서버 데이터 가져오기 실패:', error);
+      }
 
+      // 2. 로컬에서 데이터 가져오기 (우선순위 2)
       const localCustom = loadLocalCustom(dateKey);
 
-      // 서버 우선 병합 + 중복 제거(이름+설명 키)
-      const map = new Map();
-      for (const r of serverData) map.set(makeKey(r), r);
-      for (const r of localCustom)
-        if (!map.has(makeKey(r))) map.set(makeKey(r), r);
+      // 3. 서버 데이터를 기준으로 병합 (서버 우선)
+      const mergedRoutines = [...serverData];
 
-      setRoutines(Array.from(map.values()));
+      // 로컬에만 있는 항목들을 서버에 동기화 시도
+      for (const localRoutine of localCustom) {
+        const localKey = makeKey(localRoutine);
+        const serverExists = serverData.some((r) => makeKey(r) === localKey);
+
+        if (!serverExists) {
+          // 로컬에만 있는 항목을 서버에 추가 시도
+          try {
+            const response = await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: localRoutine.name,
+                description: localRoutine.description,
+              }),
+            });
+
+            if (response.ok) {
+              const newServerRoutine = await response.json();
+              mergedRoutines.push(newServerRoutine);
+            } else {
+              // 서버 추가 실패 시 로컬 항목 유지
+              mergedRoutines.push(localRoutine);
+            }
+          } catch (error) {
+            // 네트워크 오류 시 로컬 항목 유지
+            mergedRoutines.push(localRoutine);
+          }
+        }
+      }
+
+      // 4. 중복 제거 (이름+설명 기준)
+      const uniqueRoutines = [];
+      const seenKeys = new Set();
+
+      for (const routine of mergedRoutines) {
+        const key = makeKey(routine);
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          uniqueRoutines.push(routine);
+        }
+      }
+
+      setRoutines(uniqueRoutines);
+
+      // 5. 로컬 저장소 업데이트 (서버 데이터 기준으로)
+      const localOnlyRoutines = uniqueRoutines.filter((r) => !r.isDefault);
+      saveLocalCustom(dateKey, localOnlyRoutines);
     } catch (error) {
       console.error('할 일 목록을 가져오는데 실패했습니다:', error);
-      setRoutines(loadLocalCustom(dateKey));
+      // 완전 실패 시 로컬 데이터만 사용
+      const localData = loadLocalCustom(dateKey);
+      setRoutines(localData);
     } finally {
       setLoading(false);
     }
@@ -78,41 +131,58 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
     const description = newRoutineDescription.trim();
     if (!name) return;
 
-    // 프로덕션에서는 서버 우선 생성 → 성공 시 재조회, 실패 시 로컬 폴백
-    if (isProd) {
-      try {
-        const res = await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, description }),
+    // 1. 서버에 먼저 추가 시도
+    try {
+      const response = await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description }),
+      });
+
+      if (response.ok) {
+        const newServerRoutine = await response.json();
+
+        // 서버 성공 시 화면에 추가
+        setRoutines((prev) => {
+          const key = makeKey(newServerRoutine);
+          const exists = prev.some((r) => makeKey(r) === key);
+          return exists ? prev : [...prev, newServerRoutine];
         });
-        if (res.ok) {
-          await fetchRoutines();
-          setNewRoutineName('');
-          setNewRoutineDescription('');
-          setShowAddForm(false);
-          return;
-        }
-      } catch {}
+
+        // 로컬 저장소도 업데이트
+        const currentLocal = loadLocalCustom(dateKey);
+        const updatedLocal = [...currentLocal, newServerRoutine];
+        saveLocalCustom(dateKey, updatedLocal);
+
+        setNewRoutineName('');
+        setNewRoutineDescription('');
+        setShowAddForm(false);
+        return;
+      }
+    } catch (error) {
+      console.warn('서버 추가 실패:', error);
     }
 
-    // 로컬 폴백(개발 또는 서버 실패 시)
-    const newRoutine = {
+    // 2. 서버 실패 시 로컬에만 추가
+    const newLocalRoutine = {
       id: `local_${Date.now()}`,
       name,
       points: 1,
       description: description || '커스텀 할 일',
       isDefault: false,
     };
+
+    // 로컬 저장소에 추가
     const currentLocal = loadLocalCustom(dateKey);
-    const updatedLocal = [...currentLocal, newRoutine];
+    const updatedLocal = [...currentLocal, newLocalRoutine];
     saveLocalCustom(dateKey, updatedLocal);
 
-    // 화면 반영(중복 방지 병합)
-    const map = new Map();
-    for (const r of routines) map.set(makeKey(r), r);
-    if (!map.has(makeKey(newRoutine))) map.set(makeKey(newRoutine), newRoutine);
-    setRoutines(Array.from(map.values()));
+    // 화면에 추가 (중복 방지)
+    setRoutines((prev) => {
+      const key = makeKey(newLocalRoutine);
+      const exists = prev.some((r) => makeKey(r) === key);
+      return exists ? prev : [...prev, newLocalRoutine];
+    });
 
     setNewRoutineName('');
     setNewRoutineDescription('');
@@ -122,47 +192,33 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const handleDeleteRoutine = async (routineId) => {
     // 현재 목록에서 대상 찾기
     const target = routines.find((r) => r.id === routineId);
-    const key = target ? makeKey(target) : null;
+    if (!target) return;
 
-    // 로컬에서 제거
-    const currentLocal = loadLocalCustom(dateKey);
-    const filteredLocal = currentLocal.filter(
-      (r) => makeKey(r) !== key && r.id !== routineId
-    );
-    saveLocalCustom(dateKey, filteredLocal);
+    const targetKey = makeKey(target);
 
-    // 서버에서도 동일 키의 항목이 있으면 삭제 시도(중복 방지)
-    try {
-      // 서버 항목 id 후보: 현재 상태에서 local_이 아닌 커스텀
-      const serverCandidate = routines.find(
-        (r) =>
-          !r.isDefault &&
-          !String(r.id).startsWith('local_') &&
-          makeKey(r) === key
-      );
-      if (serverCandidate) {
-        await fetch(`${API_BASE_URL}/custom/${dateKey}/${serverCandidate.id}`, {
+    // 1. 서버에서 삭제 시도 (서버 ID인 경우)
+    if (!String(routineId).startsWith('local_')) {
+      try {
+        await fetch(`${API_BASE_URL}/custom/${dateKey}/${routineId}`, {
           method: 'DELETE',
         });
-      } else {
-        // 직접 누른 항목이 서버 아이디이면 그걸로 삭제
-        if (!String(routineId).startsWith('local_')) {
-          await fetch(`${API_BASE_URL}/custom/${dateKey}/${routineId}`, {
-            method: 'DELETE',
-          });
-        }
+      } catch (error) {
+        console.warn('서버 삭제 실패:', error);
       }
-    } catch (e) {
-      console.error('서버 삭제 실패(무시):', e);
     }
 
-    // 화면 갱신: 동일 키 제거
-    setRoutines((prev) =>
-      prev.filter((r) => makeKey(r) !== key && r.id !== routineId)
-    );
+    // 2. 로컬에서 제거
+    const currentLocal = loadLocalCustom(dateKey);
+    const filteredLocal = currentLocal.filter((r) => makeKey(r) !== targetKey);
+    saveLocalCustom(dateKey, filteredLocal);
 
-    // 완료 상태 제거 통지
-    if (completedRoutines[routineId]) onRoutineToggle(routineId, false);
+    // 3. 화면에서 제거
+    setRoutines((prev) => prev.filter((r) => makeKey(r) !== targetKey));
+
+    // 4. 완료 상태 제거 통지
+    if (completedRoutines[routineId]) {
+      onRoutineToggle(routineId, false);
+    }
   };
 
   const handleRoutineToggle = async (routineId) => {
