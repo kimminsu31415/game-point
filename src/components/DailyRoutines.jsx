@@ -6,6 +6,7 @@ const API_BASE_URL =
     : 'http://localhost:5000/api/routines';
 
 const LOCAL_CUSTOM_KEY_PREFIX = 'gp_custom_';
+const isProd = process.env.NODE_ENV === 'production';
 
 function loadLocalCustom(dateKey) {
   try {
@@ -25,6 +26,13 @@ function saveLocalCustom(dateKey, routines) {
   } catch {}
 }
 
+function makeKey(routine) {
+  // 이름+설명을 기준으로 기기 간 동일 항목을 식별
+  const name = (routine.name || '').trim().toLowerCase();
+  const desc = (routine.description || '').trim().toLowerCase();
+  return `${name}__${desc}`;
+}
+
 function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const [routines, setRoutines] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,92 +40,129 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const [newRoutineDescription, setNewRoutineDescription] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
 
-  const dateKey = selectedDate.toLocaleDateString('en-CA'); // YYYY-MM-DD 형식 (로컬 시간 기준)
+  const dateKey = selectedDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
 
-  // 선택된 날짜의 할 일 목록 가져오기
   useEffect(() => {
     fetchRoutines();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateKey]);
 
   const fetchRoutines = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/${dateKey}`);
-      let data = [];
-      if (response.ok) {
-        data = await response.json();
-      }
-      // 로컬 커스텀과 병합 (서버 기본 + 로컬 커스텀)
+      let serverData = [];
+      try {
+        const response = await fetch(`${API_BASE_URL}/${dateKey}`);
+        if (response.ok) serverData = await response.json();
+      } catch {}
+
       const localCustom = loadLocalCustom(dateKey);
-      setRoutines([...data, ...localCustom]);
+
+      // 서버 우선 병합 + 중복 제거(이름+설명 키)
+      const map = new Map();
+      for (const r of serverData) map.set(makeKey(r), r);
+      for (const r of localCustom)
+        if (!map.has(makeKey(r))) map.set(makeKey(r), r);
+
+      setRoutines(Array.from(map.values()));
     } catch (error) {
       console.error('할 일 목록을 가져오는데 실패했습니다:', error);
-      // 실패 시에도 로컬 커스텀만이라도 표시
-      const localCustom = loadLocalCustom(dateKey);
-      setRoutines([...localCustom]);
+      setRoutines(loadLocalCustom(dateKey));
     } finally {
       setLoading(false);
     }
   };
 
   const handleAddRoutine = async () => {
-    if (newRoutineName.trim()) {
-      // 로컬 우선 추가 (낙관적 업데이트)
-      const newRoutine = {
-        id: `local_${Date.now()}`,
-        name: newRoutineName.trim(),
-        points: 1,
-        description: newRoutineDescription.trim() || '커스텀 할 일',
-        isDefault: false,
-      };
-      const currentLocal = loadLocalCustom(dateKey);
-      const updatedLocal = [...currentLocal, newRoutine];
-      saveLocalCustom(dateKey, updatedLocal);
-      setRoutines((prev) => [...prev, newRoutine]);
+    const name = newRoutineName.trim();
+    const description = newRoutineDescription.trim();
+    if (!name) return;
 
-      // 서버에도 시도 (실패해도 무시)
+    // 프로덕션에서는 서버 우선 생성 → 성공 시 재조회, 실패 시 로컬 폴백
+    if (isProd) {
       try {
-        await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
+        const res = await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: newRoutine.name,
-            description: newRoutine.description,
-          }),
+          body: JSON.stringify({ name, description }),
         });
+        if (res.ok) {
+          await fetchRoutines();
+          setNewRoutineName('');
+          setNewRoutineDescription('');
+          setShowAddForm(false);
+          return;
+        }
       } catch {}
-
-      setNewRoutineName('');
-      setNewRoutineDescription('');
-      setShowAddForm(false);
     }
+
+    // 로컬 폴백(개발 또는 서버 실패 시)
+    const newRoutine = {
+      id: `local_${Date.now()}`,
+      name,
+      points: 1,
+      description: description || '커스텀 할 일',
+      isDefault: false,
+    };
+    const currentLocal = loadLocalCustom(dateKey);
+    const updatedLocal = [...currentLocal, newRoutine];
+    saveLocalCustom(dateKey, updatedLocal);
+
+    // 화면 반영(중복 방지 병합)
+    const map = new Map();
+    for (const r of routines) map.set(makeKey(r), r);
+    if (!map.has(makeKey(newRoutine))) map.set(makeKey(newRoutine), newRoutine);
+    setRoutines(Array.from(map.values()));
+
+    setNewRoutineName('');
+    setNewRoutineDescription('');
+    setShowAddForm(false);
   };
 
   const handleDeleteRoutine = async (routineId) => {
+    // 현재 목록에서 대상 찾기
+    const target = routines.find((r) => r.id === routineId);
+    const key = target ? makeKey(target) : null;
+
     // 로컬에서 제거
     const currentLocal = loadLocalCustom(dateKey);
-    const updatedLocal = currentLocal.filter((r) => r.id !== routineId);
-    saveLocalCustom(dateKey, updatedLocal);
-    setRoutines((prev) => prev.filter((r) => r.id !== routineId));
+    const filteredLocal = currentLocal.filter(
+      (r) => makeKey(r) !== key && r.id !== routineId
+    );
+    saveLocalCustom(dateKey, filteredLocal);
 
+    // 서버에서도 동일 키의 항목이 있으면 삭제 시도(중복 방지)
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/custom/${dateKey}/${routineId}`,
-        {
-          method: 'DELETE',
-        }
+      // 서버 항목 id 후보: 현재 상태에서 local_이 아닌 커스텀
+      const serverCandidate = routines.find(
+        (r) =>
+          !r.isDefault &&
+          !String(r.id).startsWith('local_') &&
+          makeKey(r) === key
       );
-
-      if (response.ok) {
-        // 완료된 할 일을 삭제할 때 완료 상태도 함께 제거
-        if (completedRoutines[routineId]) {
-          // 부모 컴포넌트에 완료 상태 제거 알림
-          onRoutineToggle(routineId, false);
+      if (serverCandidate) {
+        await fetch(`${API_BASE_URL}/custom/${dateKey}/${serverCandidate.id}`, {
+          method: 'DELETE',
+        });
+      } else {
+        // 직접 누른 항목이 서버 아이디이면 그걸로 삭제
+        if (!String(routineId).startsWith('local_')) {
+          await fetch(`${API_BASE_URL}/custom/${dateKey}/${routineId}`, {
+            method: 'DELETE',
+          });
         }
       }
-    } catch (error) {
-      console.error('할 일 삭제에 실패했습니다:', error);
+    } catch (e) {
+      console.error('서버 삭제 실패(무시):', e);
     }
+
+    // 화면 갱신: 동일 키 제거
+    setRoutines((prev) =>
+      prev.filter((r) => makeKey(r) !== key && r.id !== routineId)
+    );
+
+    // 완료 상태 제거 통지
+    if (completedRoutines[routineId]) onRoutineToggle(routineId, false);
   };
 
   const handleRoutineToggle = async (routineId) => {
@@ -178,19 +223,14 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
 
   const getTotalPoints = () => {
     return routines.reduce((total, routine) => {
-      if (completedRoutines[routine.id]) {
-        return total + routine.points;
-      }
+      if (completedRoutines[routine.id]) return total + routine.points;
       return total;
     }, 0);
   };
 
   const getCompletedCount = () => {
-    // 실제로 존재하는 할 일 중에서 완료된 것만 계산
     return routines.reduce((count, routine) => {
-      if (completedRoutines[routine.id]) {
-        return count + 1;
-      }
+      if (completedRoutines[routine.id]) return count + 1;
       return count;
     }, 0);
   };
