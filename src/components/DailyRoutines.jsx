@@ -70,10 +70,74 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
       );
 
       if (response.ok) {
+        // 완료된 할 일을 삭제할 때 완료 상태도 함께 제거
+        if (completedRoutines[routineId]) {
+          // 부모 컴포넌트에 완료 상태 제거 알림
+          onRoutineToggle(routineId, false);
+        }
         await fetchRoutines(); // 목록 새로고침
       }
     } catch (error) {
       console.error('할 일 삭제에 실패했습니다:', error);
+    }
+  };
+
+  const handleRoutineToggle = async (routineId) => {
+    // 이벤트 기본 동작 방지
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (newRoutineName.trim()) {
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/routines/custom/${dateKey}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: newRoutineName.trim(),
+              description: newRoutineDescription.trim(),
+            }),
+          }
+        );
+
+        if (response.ok) {
+          await fetchRoutines(); // 목록 새로고침
+          setNewRoutineName('');
+          setNewRoutineDescription('');
+          setShowAddForm(false);
+        }
+      } catch (error) {
+        console.error('할 일 추가에 실패했습니다:', error);
+      }
+    }
+  };
+
+  const handleCheckboxChange = async (routineId, isCompleted) => {
+    // 이벤트 기본 동작 방지
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/routines/complete/${dateKey}/${routineId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ completed: isCompleted }),
+        }
+      );
+
+      if (response.ok) {
+        // 부모 컴포넌트에 상태 변경 알림
+        onRoutineToggle(routineId, isCompleted);
+      }
+    } catch (error) {
+      console.error('할 일 완료 상태 업데이트에 실패했습니다:', error);
     }
   };
 
@@ -87,8 +151,13 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   };
 
   const getCompletedCount = () => {
-    return Object.values(completedRoutines).filter((completed) => completed)
-      .length;
+    // 실제로 존재하는 할 일 중에서 완료된 것만 계산
+    return routines.reduce((count, routine) => {
+      if (completedRoutines[routine.id]) {
+        return count + 1;
+      }
+      return count;
+    }, 0);
   };
 
   if (loading) {
@@ -110,9 +179,9 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
             포인트: {getTotalPoints()}P
           </span>
         </div>
-        <div className="w-full bg-purple-100 rounded-full h-2">
+        <div className="w-full bg-purple-100 rounded-full h-3 border border-purple-200">
           <div
-            className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+            className="bg-purple-500 h-3 rounded-full transition-all duration-300 shadow-sm"
             style={{
               width: `${
                 routines.length > 0
@@ -121,6 +190,13 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
               }%`,
             }}
           ></div>
+        </div>
+        <div className="text-xs text-purple-600 mt-1 text-center">
+          {routines.length > 0
+            ? `${Math.round(
+                (getCompletedCount() / routines.length) * 100
+              )}% 완료`
+            : '할 일이 없습니다'}
         </div>
       </div>
 
@@ -184,14 +260,16 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
                 <input
                   type="checkbox"
                   checked={isCompleted}
-                  onChange={() => onRoutineToggle(routine.id)}
+                  onChange={() =>
+                    handleCheckboxChange(routine.id, !isCompleted)
+                  }
                   className="opacity-0 w-0 h-0"
                 />
                 <span
                   className={`absolute top-0 left-0 w-6 h-6 rounded-md border-2 transition-all duration-200 flex items-center justify-center ${
                     isCompleted
                       ? 'bg-green-500 border-green-500 text-white'
-                      : 'bg-white border-purple-400 text-transparent'
+                      : 'bg-white border-purple-400 text-transparent hover:bg-purple-50'
                   }`}
                 >
                   {isCompleted && (
