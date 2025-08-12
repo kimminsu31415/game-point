@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL =
+  process.env.NODE_ENV === 'production'
+    ? '/api/routines'
+    : 'http://localhost:5000/api/routines';
 
 function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const [routines, setRoutines] = useState([]);
@@ -19,7 +22,7 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const fetchRoutines = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/routines/${dateKey}`);
+      const response = await fetch(`${API_BASE_URL}/${dateKey}`);
       if (response.ok) {
         const data = await response.json();
         setRoutines(data);
@@ -34,19 +37,16 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const handleAddRoutine = async () => {
     if (newRoutineName.trim()) {
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/routines/custom/${dateKey}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              name: newRoutineName.trim(),
-              description: newRoutineDescription.trim(),
-            }),
-          }
-        );
+        const response = await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: newRoutineName.trim(),
+            description: newRoutineDescription.trim(),
+          }),
+        });
 
         if (response.ok) {
           await fetchRoutines(); // 목록 새로고침
@@ -63,7 +63,7 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const handleDeleteRoutine = async (routineId) => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/routines/custom/${dateKey}/${routineId}`,
+        `${API_BASE_URL}/custom/${dateKey}/${routineId}`,
         {
           method: 'DELETE',
         }
@@ -89,19 +89,16 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
 
     if (newRoutineName.trim()) {
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/routines/custom/${dateKey}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              name: newRoutineName.trim(),
-              description: newRoutineDescription.trim(),
-            }),
-          }
-        );
+        const response = await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: newRoutineName.trim(),
+            description: newRoutineDescription.trim(),
+          }),
+        });
 
         if (response.ok) {
           await fetchRoutines(); // 목록 새로고침
@@ -122,7 +119,7 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/routines/complete/${dateKey}/${routineId}`,
+        `${API_BASE_URL}/complete/${dateKey}/${routineId}`,
         {
           method: 'POST',
           headers: {

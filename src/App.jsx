@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import Calendar from './components/Calendar';
 import DailyRoutines from './components/DailyRoutines';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL =
+  process.env.NODE_ENV === 'production'
+    ? '/api/routines'
+    : 'http://localhost:5000/api/routines';
 
 function App() {
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -17,9 +20,7 @@ function App() {
 
   const fetchCompletedRoutines = async () => {
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/routines/complete/${dateKey}`
-      );
+      const response = await fetch(`${API_BASE_URL}/complete/${dateKey}`);
       if (response.ok) {
         const data = await response.json();
         setCompletedRoutines(data);
@@ -38,7 +39,7 @@ function App() {
   const handleRoutineToggle = async (routineId, isCompleted) => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/routines/complete/${dateKey}/${routineId}`,
+        `${API_BASE_URL}/complete/${dateKey}/${routineId}`,
         {
           method: 'POST',
           headers: {

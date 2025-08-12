@@ -20,10 +20,34 @@ function loadData() {
   }
   return {
     default: [
-      { id: 'morning_study', name: '새벽 공부 (6-9시)', points: 2, description: 'AWS 실습, 백엔드 코딩, 데이터 분석', isDefault: true },
-      { id: 'english_practice', name: '영어 연습', points: 1, description: '기술 문서 읽기, 영어 회화 연습', isDefault: true },
-      { id: 'exercise', name: '운동 루틴', points: 1, description: '근력 운동 + 유산소 운동', isDefault: true },
-      { id: 'content_creation', name: '콘텐츠 제작', points: 1, description: '브이로그 촬영, 게임 개발, 블로그 작성', isDefault: true },
+      {
+        id: 'morning_study',
+        name: '새벽 공부 (6-9시)',
+        points: 2,
+        description: 'AWS 실습, 백엔드 코딩, 데이터 분석',
+        isDefault: true,
+      },
+      {
+        id: 'english_practice',
+        name: '영어 연습',
+        points: 1,
+        description: '기술 문서 읽기, 영어 회화 연습',
+        isDefault: true,
+      },
+      {
+        id: 'exercise',
+        name: '운동 루틴',
+        points: 1,
+        description: '근력 운동 + 유산소 운동',
+        isDefault: true,
+      },
+      {
+        id: 'content_creation',
+        name: '콘텐츠 제작',
+        points: 1,
+        description: '브이로그 촬영, 게임 개발, 블로그 작성',
+        isDefault: true,
+      },
     ],
     custom: {},
     completed: {},
@@ -75,9 +99,12 @@ module.exports = async (req, res) => {
         const date = parts[1];
         const chunks = [];
         for await (const chunk of req) chunks.push(chunk);
-        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
+        const body = chunks.length
+          ? JSON.parse(Buffer.concat(chunks).toString())
+          : {};
         const { name, description } = body;
-        if (!name || !name.trim()) return res.status(400).json({ error: '할 일 이름은 필수입니다.' });
+        if (!name || !name.trim())
+          return res.status(400).json({ error: '할 일 이름은 필수입니다.' });
         const newRoutine = {
           id: `custom_${Date.now()}`,
           name: name.trim(),
@@ -93,7 +120,9 @@ module.exports = async (req, res) => {
       if (req.method === 'DELETE' && parts.length === 3) {
         const [_, date, id] = parts;
         if (routines.custom[date]) {
-          routines.custom[date] = routines.custom[date].filter((r) => r.id !== id);
+          routines.custom[date] = routines.custom[date].filter(
+            (r) => r.id !== id
+          );
         }
         if (routines.completed[date] && routines.completed[date][id]) {
           delete routines.completed[date][id];
@@ -115,11 +144,15 @@ module.exports = async (req, res) => {
         const id = parts[2];
         const chunks = [];
         for await (const chunk of req) chunks.push(chunk);
-        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
+        const body = chunks.length
+          ? JSON.parse(Buffer.concat(chunks).toString())
+          : {};
         if (!routines.completed[date]) routines.completed[date] = {};
         routines.completed[date][id] = !!body.completed;
         saveData(routines);
-        return res.status(200).json({ message: '완료 상태가 업데이트되었습니다.' });
+        return res
+          .status(200)
+          .json({ message: '완료 상태가 업데이트되었습니다.' });
       }
       return res.status(400).json({ error: '잘못된 complete 요청입니다.' });
     }
