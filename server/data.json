@@ -30,15 +30,7 @@
     }
   ],
   "custom": {
-    "2025-08-12": [
-      {
-        "id": "custom_1754983871902",
-        "name": "test12",
-        "points": 1,
-        "description": "커스텀 할 일",
-        "isDefault": false
-      }
-    ],
+    "2025-08-12": [],
     "2025-08-15": [
       {
         "id": "custom_1754983886100",
@@ -51,6 +43,14 @@
   },
   "completed": {
     "2025-08-15": {},
-    "2025-08-12": {}
+    "2025-08-12": {
+      "morning_study": true,
+      "custom_1754983871902": true,
+      "exercise": false,
+      "english_practice": false,
+      "content_creation": true,
+      "custom_1754984910442": false
+    },
+    "2025-08-01": {}
   }
 }
