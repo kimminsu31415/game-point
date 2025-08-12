@@ -5,6 +5,26 @@ const API_BASE_URL =
     ? '/api/routines'
     : 'http://localhost:5000/api/routines';
 
+const LOCAL_CUSTOM_KEY_PREFIX = 'gp_custom_';
+
+function loadLocalCustom(dateKey) {
+  try {
+    const raw = localStorage.getItem(`${LOCAL_CUSTOM_KEY_PREFIX}${dateKey}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalCustom(dateKey, routines) {
+  try {
+    localStorage.setItem(
+      `${LOCAL_CUSTOM_KEY_PREFIX}${dateKey}`,
+      JSON.stringify(routines)
+    );
+  } catch {}
+}
+
 function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
   const [routines, setRoutines] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,12 +43,18 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/${dateKey}`);
+      let data = [];
       if (response.ok) {
-        const data = await response.json();
-        setRoutines(data);
+        data = await response.json();
       }
+      // 로컬 커스텀과 병합 (서버 기본 + 로컬 커스텀)
+      const localCustom = loadLocalCustom(dateKey);
+      setRoutines([...data, ...localCustom]);
     } catch (error) {
       console.error('할 일 목록을 가져오는데 실패했습니다:', error);
+      // 실패 시에도 로컬 커스텀만이라도 표시
+      const localCustom = loadLocalCustom(dateKey);
+      setRoutines([...localCustom]);
     } finally {
       setLoading(false);
     }
@@ -36,31 +62,44 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
 
   const handleAddRoutine = async () => {
     if (newRoutineName.trim()) {
+      // 로컬 우선 추가 (낙관적 업데이트)
+      const newRoutine = {
+        id: `local_${Date.now()}`,
+        name: newRoutineName.trim(),
+        points: 1,
+        description: newRoutineDescription.trim() || '커스텀 할 일',
+        isDefault: false,
+      };
+      const currentLocal = loadLocalCustom(dateKey);
+      const updatedLocal = [...currentLocal, newRoutine];
+      saveLocalCustom(dateKey, updatedLocal);
+      setRoutines((prev) => [...prev, newRoutine]);
+
+      // 서버에도 시도 (실패해도 무시)
       try {
-        const response = await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
+        await fetch(`${API_BASE_URL}/custom/${dateKey}`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: newRoutineName.trim(),
-            description: newRoutineDescription.trim(),
+            name: newRoutine.name,
+            description: newRoutine.description,
           }),
         });
+      } catch {}
 
-        if (response.ok) {
-          await fetchRoutines(); // 목록 새로고침
-          setNewRoutineName('');
-          setNewRoutineDescription('');
-          setShowAddForm(false);
-        }
-      } catch (error) {
-        console.error('할 일 추가에 실패했습니다:', error);
-      }
+      setNewRoutineName('');
+      setNewRoutineDescription('');
+      setShowAddForm(false);
     }
   };
 
   const handleDeleteRoutine = async (routineId) => {
+    // 로컬에서 제거
+    const currentLocal = loadLocalCustom(dateKey);
+    const updatedLocal = currentLocal.filter((r) => r.id !== routineId);
+    saveLocalCustom(dateKey, updatedLocal);
+    setRoutines((prev) => prev.filter((r) => r.id !== routineId));
+
     try {
       const response = await fetch(
         `${API_BASE_URL}/custom/${dateKey}/${routineId}`,
@@ -75,7 +114,6 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
           // 부모 컴포넌트에 완료 상태 제거 알림
           onRoutineToggle(routineId, false);
         }
-        await fetchRoutines(); // 목록 새로고침
       }
     } catch (error) {
       console.error('할 일 삭제에 실패했습니다:', error);
@@ -257,9 +295,7 @@ function DailyRoutines({ selectedDate, completedRoutines, onRoutineToggle }) {
                 <input
                   type="checkbox"
                   checked={isCompleted}
-                  onChange={() =>
-                    handleCheckboxChange(routine.id, !isCompleted)
-                  }
+                  onChange={() => onRoutineToggle(routine.id, !isCompleted)}
                   className="opacity-0 w-0 h-0"
                 />
                 <span
