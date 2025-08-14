@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Radial Skill Tree – Glow Path Mockup</title>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --grid: #1a2433;
+        --node: #7aa2f7;
+        --active: #8df8ce;
+        --edge: #3a465a;
+        --text: #dbe7ff;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(
+            1200px 700px at 10% -10%,
+            #162235,
+            transparent 60%
+          ),
+          var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          'Noto Sans KR', sans-serif;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        padding: 14px 16px;
+        border-bottom: 1px solid #233044;
+        background: rgba(11, 15, 20, 0.6);
+        backdrop-filter: blur(6px);
+      }
+      h1 {
+        margin: 0;
+        font-size: 16px;
+        opacity: 0.9;
+      }
+      .wrap {
+        flex: 1;
+        display: grid;
+        place-items: center;
+        padding: 14px;
+      }
+      svg {
+        max-width: 960px;
+        width: min(92vw, 960px);
+        height: auto;
+        display: block;
+        filter: drop-shadow(0 10px 25px rgba(0, 0, 0, 0.35));
+      }
+
+      /* edges */
+      .edge {
+        stroke: var(--edge);
+        stroke-width: 3;
+        opacity: 0.85;
+        transition: stroke 0.25s ease, opacity 0.25s ease;
+      }
+      .edge.active {
+        stroke: var(--active);
+        stroke-width: 4;
+        opacity: 1;
+        filter: drop-shadow(0 0 8px rgba(141, 248, 206, 0.8));
+        stroke-dasharray: 280; /* will be overridden per length */
+        animation: draw 900ms ease-out forwards;
+      }
+      @keyframes draw {
+        from {
+          stroke-dashoffset: 280;
+        }
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      /* nodes */
+      .node {
+        cursor: pointer;
+      }
+      .dot {
+        fill: #0f1620;
+        stroke: #3a4b62;
+        stroke-width: 2;
+      }
+      .ring {
+        fill: none;
+        stroke: var(--grid);
+        stroke-width: 1;
+        opacity: 0.4;
+      }
+      .label {
+        font-size: 12px;
+        text-anchor: middle;
+        fill: #a8b7d3;
+      }
+
+      .dot.core {
+        stroke: transparent;
+        filter: drop-shadow(0 0 18px rgba(122, 162, 247, 0.6));
+      }
+      .halo {
+        fill: none;
+        stroke: var(--node);
+        stroke-width: 1.5;
+        opacity: 0.6;
+        filter: blur(1px);
+      }
+      .glow {
+        stroke: var(--node);
+        stroke-width: 6;
+        opacity: 0;
+        filter: blur(6px);
+      }
+      .node.active .dot {
+        fill: #0e1c26;
+        stroke: transparent;
+      }
+      .node.active .halo {
+        stroke: var(--active);
+        opacity: 0.9;
+      }
+      .node.active .glow {
+        stroke: var(--active);
+        opacity: 0.9;
+      }
+      .node.active .label {
+        fill: #dffdf0;
+      }
+
+      .hint {
+        position: fixed;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #112032;
+        border: 1px solid #203147;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 12px;
+        opacity: 0.9;
+      }
+      .toolbar {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      .btn {
+        appearance: none;
+        border: 1px solid #233044;
+        background: #1a2433;
+        color: #cfe1ff;
+        padding: 8px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+      }
+      .btn:hover {
+        filter: brightness(1.1);
+      }
+    </style>
+  </head>
+  <body>
+    <header><h1>Jedi‑style Radial Skill Tree – Prototype</h1></header>
+    <div class="wrap">
+      <svg id="tree" viewBox="-320 -320 640 640" aria-label="skill tree">
+        <!-- concentric rings for vibe -->
+        <circle class="ring" r="260" />
+        <circle class="ring" r="180" />
+        <circle class="ring" r="100" />
+
+        <!-- edges (drawn by JS) -->
+        <g id="edges"></g>
+
+        <!-- nodes -->
+        <g id="nodes"></g>
+      </svg>
+    </div>
+
+    <div class="toolbar">
+      <div class="btn" style="cursor: default">
+        Points: <b id="sp" style="margin-left: 6px">3</b>
+      </div>
+      <button class="btn" id="reset">초기화</button>
+      <button class="btn" id="random">랜덤 활성화</button>
+    </div>
+    <div class="hint">
+      가운데 스킬이 활성화되어 있습니다. 연결된 이웃 스킬을 탭/클릭해 보세요.
+    </div>
+
+    <script>
+      // ===== Radial Skill Tree with Points & Categories =====
+      // 3 points to start, each unlock costs 1 point. Only neighbors of active nodes can be unlocked.
+
+      const TAU = Math.PI * 2;
+      const toXY = (angleDeg, radius) => {
+        const rad = (angleDeg * Math.PI) / 180;
+        return { x: Math.cos(rad) * radius, y: Math.sin(rad) * radius };
+      };
+
+      // Category palette
+      const CATS = {
+        core: { name: '방향성 Core', color: '#7aa2f7' },
+        cloud: { name: '클라우드', color: '#66a9ff' },
+        backend: { name: '백엔드', color: '#b38ef7' },
+        english: { name: '영어', color: '#ffd166' },
+        startup: { name: '창업·서비스', color: '#8df8ce' },
+        vlog: { name: '브이로그', color: '#ff82c9' },
+        health: { name: '건강', color: '#72e06a' },
+      };
+
+      // Spokes (angle) and tier radii
+      const R1 = 100,
+        R2 = 180,
+        R3 = 250; // inner -> outer
+
+      const nodes = [
+        // Core
+        { id: 0, ...toXY(0, 0), r: 16, label: CATS.core.name, cat: 'core' },
+        // Cloud spoke (up)
+        {
+          id: 1,
+          ...toXY(-90, R1),
+          r: 11,
+          label: '클라우드 기초',
+          cat: 'cloud',
+        },
+        {
+          id: 2,
+          ...toXY(-90, R2),
+          r: 11,
+          label: '아키텍처 설계',
+          cat: 'cloud',
+        },
+        { id: 3, ...toXY(-90, R3), r: 11, label: '프로 인증', cat: 'cloud' },
+        // Backend spoke (30º right-up)
+        { id: 10, ...toXY(-30, R1), r: 11, label: 'API 설계', cat: 'backend' },
+        { id: 11, ...toXY(-30, R2), r: 11, label: 'DB 최적화', cat: 'backend' },
+        {
+          id: 12,
+          ...toXY(-30, R3),
+          r: 11,
+          label: '관측성·SLO',
+          cat: 'backend',
+        },
+        // English spoke (30º right-down)
+        { id: 20, ...toXY(30, R1), r: 11, label: '업무 회화', cat: 'english' },
+        {
+          id: 21,
+          ...toXY(30, R2),
+          r: 11,
+          label: '코드리뷰 영어',
+          cat: 'english',
+        },
+        {
+          id: 22,
+          ...toXY(30, R3),
+          r: 11,
+          label: '발표·프레젠테이션',
+          cat: 'english',
+        },
+        // Startup/Service (down)
+        { id: 30, ...toXY(90, R1), r: 11, label: 'MVP', cat: 'startup' },
+        {
+          id: 31,
+          ...toXY(90, R2),
+          r: 11,
+          label: '유저 인터뷰',
+          cat: 'startup',
+        },
+        { id: 32, ...toXY(90, R3), r: 11, label: '지표 운영', cat: 'startup' },
+        // Vlog/Creative (150º left-down)
+        {
+          id: 40,
+          ...toXY(150, R1),
+          r: 11,
+          label: '브이로그 기획',
+          cat: 'vlog',
+        },
+        { id: 41, ...toXY(150, R2), r: 11, label: '촬영 루틴', cat: 'vlog' },
+        { id: 42, ...toXY(150, R3), r: 11, label: '편집·브랜딩', cat: 'vlog' },
+        // Health (210º left-up)
+        {
+          id: 50,
+          ...toXY(210, R1),
+          r: 11,
+          label: '근력·유산소',
+          cat: 'health',
+        },
+        { id: 51, ...toXY(210, R2), r: 11, label: '수면·영양', cat: 'health' },
+        {
+          id: 52,
+          ...toXY(210, R3),
+          r: 11,
+          label: '체지방 20%↓',
+          cat: 'health',
+        },
+      ];
+
+      // Edges: core to first tier each, then linear along each spoke
+      const edges = [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [0, 10],
+        [10, 11],
+        [11, 12],
+        [0, 20],
+        [20, 21],
+        [21, 22],
+        [0, 30],
+        [30, 31],
+        [31, 32],
+        [0, 40],
+        [40, 41],
+        [41, 42],
+        [0, 50],
+        [50, 51],
+        [51, 52],
+      ];
+
+      let points = 3; // starting points
+      const active = new Set([0]); // core active
+
+      // --- SVG refs
+      const gEdges = document.getElementById('edges');
+      const gNodes = document.getElementById('nodes');
+      const edgeEls = new Map();
+      const pos = Object.fromEntries(
+        nodes.map((n) => [n.id, { x: n.x, y: n.y, r: n.r, cat: n.cat }])
+      );
+      const neighbors = nodes.reduce((acc, n) => {
+        acc[n.id] = new Set();
+        return acc;
+      }, {});
+      edges.forEach(([a, b]) => {
+        neighbors[a].add(b);
+        neighbors[b].add(a);
+      });
+
+      function edgeLength(a, b) {
+        const dx = pos[a].x - pos[b].x,
+          dy = pos[a].y - pos[b].y;
+        return Math.hypot(dx, dy);
+      }
+      const key = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+
+      // Draw edges
+      edges.forEach(([a, b]) => {
+        const line = document.createElementNS(
+          'http://www.w3.org/2000/svg',
+          'line'
+        );
+        line.setAttribute('class', 'edge');
+        line.setAttribute('x1', pos[a].x);
+        line.setAttribute('y1', pos[a].y);
+        line.setAttribute('x2', pos[b].x);
+        line.setAttribute('y2', pos[b].y);
+        const len = Math.ceil(edgeLength(a, b));
+        line.style.strokeDasharray = `${len}`;
+        gEdges.appendChild(line);
+        edgeEls.set(key(a, b), line);
+      });
+
+      // Draw nodes (with per-category color)
+      nodes.forEach((n) => {
+        const cat = CATS[n.cat] || CATS.core;
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'node');
+        g.dataset.id = n.id;
+        g.dataset.cat = n.cat;
+        g.setAttribute('transform', `translate(${n.x},${n.y})`);
+
+        const glow = document.createElementNS(
+          'http://www.w3.org/2000/svg',
+          'circle'
+        );
+        glow.setAttribute('class', 'glow');
+        glow.setAttribute('r', n.r + 6);
+        glow.setAttribute('stroke', cat.color);
+        const halo = document.createElementNS(
+          'http://www.w3.org/2000/svg',
+          'circle'
+        );
+        halo.setAttribute('class', 'halo');
+        halo.setAttribute('r', n.r + 3);
+        halo.setAttribute('stroke', cat.color);
+        const dot = document.createElementNS(
+          'http://www.w3.org/2000/svg',
+          'circle'
+        );
+        dot.setAttribute('class', 'dot');
+        dot.setAttribute('r', n.id === 0 ? n.r + 2 : n.r);
+        if (n.id === 0) dot.classList.add('core');
+        const label = document.createElementNS(
+          'http://www.w3.org/2000/svg',
+          'text'
+        );
+        label.setAttribute('class', 'label');
+        label.setAttribute('y', n.r + 18);
+        label.textContent = n.label;
+
+        g.appendChild(glow);
+        g.appendChild(halo);
+        g.appendChild(dot);
+        g.appendChild(label);
+        gNodes.appendChild(g);
+      });
+
+      function updatePoints() {
+        document.getElementById('sp').textContent = String(points);
+      }
+      function setNodeActive(id) {
+        const el = gNodes.querySelector(`[data-id="${id}"]`);
+        if (!el) return;
+        el.classList.add('active');
+      }
+      function isNeighborOfActive(id) {
+        for (const a of active) {
+          if (neighbors[a].has(id)) return true;
+        }
+        return false;
+      }
+      function activateEdge(a, b) {
+        const line = edgeEls.get(key(a, b));
+        if (!line) return;
+        const cat = CATS[pos[b].cat] || CATS.core;
+        line.classList.add('active');
+        line.style.stroke = cat.color;
+        line.style.filter = 'drop-shadow(0 0 8px ' + cat.color + ')';
+      }
+
+      // init
+      setNodeActive(0);
+      updatePoints();
+
+      // click behavior with cost
+      function tryUnlock(id) {
+        if (active.has(id)) return;
+        if (!isNeighborOfActive(id)) return;
+        if (points <= 0) {
+          flash('포인트가 부족합니다');
+          return;
+        }
+        let from = null;
+        for (const a of active) {
+          if (neighbors[a].has(id)) {
+            from = a;
+            break;
+          }
+        }
+        if (from == null) return;
+        activateEdge(from, id);
+        active.add(id);
+        setNodeActive(id);
+        points -= 1;
+        updatePoints();
+      }
+
+      gNodes.addEventListener('click', (e) => {
+        const t = e.target.closest('.node');
+        if (!t) return;
+        const id = +t.dataset.id;
+        tryUnlock(id);
+      });
+
+      document.getElementById('random').addEventListener('click', () => {
+        if (points <= 0) return flash('포인트가 부족합니다');
+        const options = new Set();
+        for (const a of active) {
+          for (const b of neighbors[a]) {
+            if (!active.has(b)) options.add(b);
+          }
+        }
+        if (options.size === 0) return;
+        const pick =
+          Array.from(options)[Math.floor(Math.random() * options.size)];
+        tryUnlock(pick);
+      });
+
+      const btnReset = document.getElementById('reset');
+      btnReset.addEventListener('click', () => {
+        // reset state but keep points at 3 again
+        document.querySelectorAll('.edge.active').forEach((el) => {
+          el.classList.remove('active');
+          el.style.stroke = '';
+          el.style.filter = '';
+        });
+        document.querySelectorAll('.node.active').forEach((el) => {
+          if (el.dataset.id !== '0') el.classList.remove('active');
+        });
+        active.clear();
+        active.add(0);
+        setNodeActive(0);
+        points = 3;
+        updatePoints();
+      });
+
+      function flash(msg) {
+        const n = document.createElement('div');
+        n.textContent = msg;
+        n.style.position = 'fixed';
+        n.style.bottom = '20px';
+        n.style.left = '50%';
+        n.style.transform = 'translateX(-50%)';
+        n.style.background = '#112032';
+        n.style.border = '1px solid #203147';
+        n.style.borderRadius = '10px';
+        n.style.padding = '8px 12px';
+        n.style.zIndex = 50;
+        n.style.color = '#dbe7ff';
+        document.body.appendChild(n);
+        setTimeout(() => n.remove(), 1200);
+      }
+    </script>
+  </body>
+</html>
