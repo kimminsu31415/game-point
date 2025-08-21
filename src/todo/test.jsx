@@ -29,3 +29,11 @@ import { Button } from '@/components/ui/button';
 export default function Test() {
   return <Button>Click me</Button>;
 }
+
+// 컴포넌트 라이브러리 재사용
+
+import { Button } from '@/components/ui/button2';
+
+export default function Test() {
+  return <Button>Click me</Button>;
+} 
