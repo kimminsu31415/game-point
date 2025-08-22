@@ -37,3 +37,21 @@ import { Button } from '@/components/ui/button2';
 export default function Test() {
   return <Button>Click me</Button>;
 } 
+
+// shadcn ui 컴포넌트 라이브러리 사용하기
+
+import { Button } from '@/components/ui/button';
+
+export default function Test() {
+  return <Button>Click me</Button>;
+}
+
+// sql 쿼리 작성하기
+
+import { Button } from '@/components/ui/button';
+
+export default function Test() {
+  return <Button>Click me</Button>;
+}
+
+// 
