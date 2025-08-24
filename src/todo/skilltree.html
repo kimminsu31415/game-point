@@ -381,6 +381,15 @@
         edgeEls.set(key(a, b), line);
       });
 
+      // Draw edges (with text-category color)
+      edges.forEach(([a, b]) => {
+        const line = edgeEls.get(key(a, b));
+        if (!line) return;
+        const cat = CATS[pos[b].cat] || CATS.core;
+        line.style.stroke = cat.color;
+        line.style.filter = 'drop-shadow(0 0 8px ' + cat.color + ')';
+      });
+
       // Draw nodes (with per-category color)
       nodes.forEach((n) => {
         const cat = CATS[n.cat] || CATS.core;
